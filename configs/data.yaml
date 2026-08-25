@@ -1,0 +1,42 @@
+seed: 42
+
+datasets:
+  medmcqa:
+    id: openlifescienceai/medmcqa
+    revision: main
+    splits:
+      train: train
+      validation: validation
+  medqa:
+    id: jind11/MedQA
+    revision: main
+    splits:
+      train: data_clean/questions/US/4_options/phrases_no_exclude_train.jsonl
+      dev: data_clean/questions/US/4_options/phrases_no_exclude_dev.jsonl
+      test: data_clean/questions/US/4_options/phrases_no_exclude_test.jsonl
+  mmlu_pro:
+    id: TIGER-Lab/MMLU-Pro
+    revision: main
+    splits:
+      test: test
+    category: health
+
+samples:
+  sft_train: 12000
+  sft_dev: 512
+  medmcqa_eval: 1000
+  initial_scan: 1000
+  scan_expand_step: 500
+
+lengths:
+  explanation_max_tokens: 160
+  sft_max_tokens: 1024
+  frozen_max_completion_length: 256
+
+tokenizer:
+  name_or_path: Qwen/Qwen3-8B-Base
+  revision: 49e3418fbbbca6ecbdf9608b4d22e5a407081db4
+  trust_remote_code: false
+
+output_dir: data/processed
+
