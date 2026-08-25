@@ -165,11 +165,9 @@ def _write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def _load_medqa_file(dataset_id: str, revision: str, path: str):
-    from datasets import load_dataset
-
-    url = f"hf://datasets/{dataset_id}@{revision}/{path}"
-    return load_dataset("json", data_files=url, split="train")
+def dataset_distribution_id(spec: Mapping[str, Any]) -> str:
+    """Return the repository that actually hosts downloadable dataset files."""
+    return str(spec.get("distribution_id", spec["id"]))
 
 
 def prepare_data(config_path: Path) -> dict[str, Any]:
@@ -183,7 +181,8 @@ def prepare_data(config_path: Path) -> dict[str, Any]:
     specs = config["datasets"]
     hub = HfApi()
     resolved_revisions = {
-        name: hub.dataset_info(spec["id"], revision=spec["revision"]).sha for name, spec in specs.items()
+        name: hub.dataset_info(dataset_distribution_id(spec), revision=spec["revision"]).sha
+        for name, spec in specs.items()
     }
     output_dir = Path(config["output_dir"])
     tokenizer_cfg = config["tokenizer"]
@@ -247,8 +246,13 @@ def prepare_data(config_path: Path) -> dict[str, Any]:
 
     medqa_spec = specs["medqa"]
     medqa_splits = {}
-    for split, path in medqa_spec["splits"].items():
-        raw = _load_medqa_file(medqa_spec["id"], resolved_revisions["medqa"], path)
+    for split, source_split in medqa_spec["splits"].items():
+        raw = load_dataset(
+            dataset_distribution_id(medqa_spec),
+            medqa_spec.get("config_name"),
+            revision=resolved_revisions["medqa"],
+            split=source_split,
+        )
         normalized = [normalize_medqa(row, split, index) for index, row in enumerate(raw)]
         medqa_splits[split] = exact_deduplicate(normalized)
 
@@ -294,6 +298,8 @@ def prepare_data(config_path: Path) -> dict[str, Any]:
         "seed": seed,
         "requested_dataset_revisions": {name: spec["revision"] for name, spec in specs.items()},
         "resolved_dataset_revisions": resolved_revisions,
+        "dataset_distributions": {name: dataset_distribution_id(spec) for name, spec in specs.items()},
+        "dataset_configs": {name: spec.get("config_name") for name, spec in specs.items()},
         "counts": {filename: len(rows) for filename, rows in outputs.items()},
         "prompt_serialization": "plain_text_v1",
         "tokenizer_revision": tokenizer_cfg["revision"],

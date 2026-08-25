@@ -4,6 +4,7 @@ import pytest
 
 from medreason.data import (
     clean_gold_leakage,
+    dataset_distribution_id,
     exact_deduplicate,
     normalize_medmcqa,
     normalize_medqa,
@@ -58,6 +59,11 @@ def test_schema_label_mapping_and_source_normalizers() -> None:
          "answer": "J", "category": "health"},
         "test", 0,
     )["answer"] == "J"
+
+
+def test_dataset_distribution_can_differ_from_original_source() -> None:
+    assert dataset_distribution_id({"id": "jind11/MedQA", "distribution_id": "mirror/MedQA"}) == "mirror/MedQA"
+    assert dataset_distribution_id({"id": "source/dataset"}) == "source/dataset"
 
 
 def test_schema_rejects_non_contiguous_labels_and_bad_answer() -> None:

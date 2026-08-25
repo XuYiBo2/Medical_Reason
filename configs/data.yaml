@@ -8,12 +8,16 @@ datasets:
       train: train
       validation: validation
   medqa:
+    # The official jind11 repository distributes data through Google Drive rather
+    # than GitHub. This HF distribution preserves the original source fields and splits.
     id: jind11/MedQA
+    distribution_id: awinml/medqa
+    config_name: questions
     revision: main
     splits:
-      train: data_clean/questions/US/4_options/phrases_no_exclude_train.jsonl
-      dev: data_clean/questions/US/4_options/phrases_no_exclude_dev.jsonl
-      test: data_clean/questions/US/4_options/phrases_no_exclude_test.jsonl
+      train: train
+      dev: validation
+      test: test
   mmlu_pro:
     id: TIGER-Lab/MMLU-Pro
     revision: main
@@ -39,4 +43,3 @@ tokenizer:
   trust_remote_code: false
 
 output_dir: data/processed
-
