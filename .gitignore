@@ -1,0 +1,13 @@
+.venv/
+.uv-cache/
+.uv-python/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.coverage
+
+# Local model/data caches and experiment artifacts
+.cache/
+data/
+outputs/*
+!outputs/.gitkeep
