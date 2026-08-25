@@ -158,6 +158,29 @@ def stratified_sample(samples: Sequence[dict[str, Any]], size: int, seed: int, f
     return selected
 
 
+def split_medmcqa_validation(
+    sft_candidates: Sequence[dict[str, Any]],
+    eval_candidates: Sequence[dict[str, Any]],
+    dev_size: int,
+    seed: int,
+    forbidden_eval_keys: set,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Select SFT dev under SFT filters; keep final-eval candidates under MCQA validity only."""
+    sft_candidates = exact_deduplicate(sft_candidates)
+    if len(sft_candidates) < dev_size:
+        raise ValueError(f"not enough SFT-eligible MedMCQA validation rows: {len(sft_candidates)} < {dev_size}")
+    rng = random.Random(seed)
+    shuffled_sft = list(sft_candidates)
+    rng.shuffle(shuffled_sft)
+    sft_dev = shuffled_sft[:dev_size]
+
+    excluded = set(forbidden_eval_keys)
+    excluded.update(exact_dedup_key(sample) for sample in sft_dev)
+    final_eval_candidates = exact_deduplicate(eval_candidates, forbidden_keys=excluded)
+    rng.shuffle(final_eval_candidates)
+    return sft_dev, final_eval_candidates
+
+
 def _write_jsonl(path: Path, rows: Iterable[Mapping[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as handle:
@@ -220,6 +243,7 @@ def prepare_data(config_path: Path) -> dict[str, Any]:
     sft_train = stratified_sample(sft_candidates, config["samples"]["sft_train"], seed)
 
     validation_candidates = []
+    validation_sft_candidates = []
     for row in raw_validation:
         if row["choice_type"] != "single":
             continue
@@ -227,21 +251,19 @@ def prepare_data(config_path: Path) -> dict[str, Any]:
             sample = normalize_medmcqa(row, "validation")
         except ValueError:
             continue
+        validation_candidates.append(sample)
         if sample["explanation"] and encoded_length(tokenizer, sample["explanation"]) <= config["lengths"]["explanation_max_tokens"]:
             sequence = render_prompt(sample) + render_sft_completion(sample, tokenizer.eos_token)
             if encoded_length(tokenizer, sequence) <= config["lengths"]["sft_max_tokens"]:
-                validation_candidates.append(sample)
-    validation_candidates = exact_deduplicate(validation_candidates)
-    rng = random.Random(seed)
-    rng.shuffle(validation_candidates)
+                validation_sft_candidates.append(sample)
     dev_size = config["samples"]["sft_dev"]
     eval_size = config["samples"]["medmcqa_eval"]
-    if len(validation_candidates) < dev_size + eval_size:
-        raise ValueError("not enough eligible MedMCQA validation rows for disjoint dev and final eval")
-    sft_dev = validation_candidates[:dev_size]
-    medmcqa_eval_candidates = exact_deduplicate(
-        validation_candidates[dev_size:],
-        forbidden_keys={exact_dedup_key(sample) for sample in sft_train},
+    sft_dev, medmcqa_eval_candidates = split_medmcqa_validation(
+        validation_sft_candidates,
+        validation_candidates,
+        dev_size,
+        seed,
+        forbidden_eval_keys={exact_dedup_key(sample) for sample in sft_train},
     )
 
     medqa_spec = specs["medqa"]
@@ -300,6 +322,11 @@ def prepare_data(config_path: Path) -> dict[str, Any]:
         "resolved_dataset_revisions": resolved_revisions,
         "dataset_distributions": {name: dataset_distribution_id(spec) for name, spec in specs.items()},
         "dataset_configs": {name: spec.get("config_name") for name, spec in specs.items()},
+        "eligibility_counts": {
+            "medmcqa_train_sft": len(sft_candidates),
+            "medmcqa_validation_sft": len(validation_sft_candidates),
+            "medmcqa_validation_mcqa": len(validation_candidates),
+        },
         "counts": {filename: len(rows) for filename, rows in outputs.items()},
         "prompt_serialization": "plain_text_v1",
         "tokenizer_revision": tokenizer_cfg["revision"],

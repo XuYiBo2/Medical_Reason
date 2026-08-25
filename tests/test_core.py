@@ -9,6 +9,7 @@ from medreason.data import (
     normalize_medmcqa,
     normalize_medqa,
     normalize_mmlu_pro,
+    split_medmcqa_validation,
     stratified_sample,
     validate_sample,
 )
@@ -140,3 +141,17 @@ def test_stratified_sample_is_deterministic_and_proportional() -> None:
     assert [row["id"] for row in first] == [row["id"] for row in second]
     assert sum(row["subject"] == "a" for row in first) == 4
     assert sum(row["subject"] == "b" for row in first) == 1
+
+
+def test_medmcqa_final_eval_does_not_require_sft_explanation() -> None:
+    sft_candidates = [sample(id=f"dev{i}", question=f"dev {i}") for i in range(2)]
+    no_explanation = sample(id="eval", question="eval only", explanation=None)
+    sft_dev, eval_candidates = split_medmcqa_validation(
+        sft_candidates,
+        [*sft_candidates, no_explanation],
+        dev_size=2,
+        seed=42,
+        forbidden_eval_keys=set(),
+    )
+    assert len(sft_dev) == 2
+    assert eval_candidates == [no_explanation]
