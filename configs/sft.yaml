@@ -1,0 +1,59 @@
+model:
+  name_or_path: Qwen/Qwen3-8B-Base
+  revision: 49e3418fbbbca6ecbdf9608b4d22e5a407081db4
+  trust_remote_code: false
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: bfloat16
+
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.0
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+data:
+  train_path: data/processed/sft_train.jsonl
+  dev_path: data/processed/sft_dev.jsonl
+
+training:
+  max_length: 1024
+  completion_only_loss: true
+  packing: false
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 1.0e-4
+  num_train_epochs: 1
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  weight_decay: 0.0
+  bf16: true
+  gradient_checkpointing: true
+  max_grad_norm: 1.0
+  seed: 42
+
+smoke:
+  samples: 32
+  max_steps: 5
+  output_dir: outputs/sft_smoke
+
+full:
+  output_dir: outputs/sft
+
+evaluation:
+  max_new_tokens: 256
+  do_sample: false
+  num_beams: 1
+  format_rate_gate: 0.95
+
