@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import random
 import re
 from collections import defaultdict
@@ -193,8 +194,16 @@ def dataset_distribution_id(spec: Mapping[str, Any]) -> str:
     return str(spec.get("distribution_id", spec["id"]))
 
 
+def configure_huggingface_downloads() -> None:
+    """Use ordinary HTTP for public datasets; Xet CAS fails anonymously on the target server."""
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+
+
 def prepare_data(config_path: Path) -> dict[str, Any]:
     """Download, normalize, split, length-filter, deduplicate, and write Phase 1 data."""
+    # Must run before importing datasets/huggingface_hub because the Hub reads
+    # HF_HUB_DISABLE_XET while importing its constants module.
+    configure_huggingface_downloads()
     from datasets import load_dataset
     from huggingface_hub import HfApi
     from transformers import AutoTokenizer

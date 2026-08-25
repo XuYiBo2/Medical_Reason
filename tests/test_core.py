@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from medreason.data import (
     clean_gold_leakage,
+    configure_huggingface_downloads,
     dataset_distribution_id,
     exact_deduplicate,
     normalize_medmcqa,
@@ -65,6 +68,12 @@ def test_schema_label_mapping_and_source_normalizers() -> None:
 def test_dataset_distribution_can_differ_from_original_source() -> None:
     assert dataset_distribution_id({"id": "jind11/MedQA", "distribution_id": "mirror/MedQA"}) == "mirror/MedQA"
     assert dataset_distribution_id({"id": "source/dataset"}) == "source/dataset"
+
+
+def test_public_dataset_downloads_disable_xet(monkeypatch) -> None:
+    monkeypatch.setenv("HF_HUB_DISABLE_XET", "0")
+    configure_huggingface_downloads()
+    assert os.environ["HF_HUB_DISABLE_XET"] == "1"
 
 
 def test_schema_rejects_non_contiguous_labels_and_bad_answer() -> None:
