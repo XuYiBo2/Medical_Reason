@@ -29,6 +29,23 @@ def build_sft_record(sample: dict[str, Any], eos_token: str) -> dict[str, str]:
     }
 
 
+def resolve_training_steps(
+    dataset_size: int,
+    per_device_batch_size: int,
+    gradient_accumulation_steps: int,
+    num_train_epochs: int,
+    max_steps: int,
+    warmup_ratio: float,
+) -> tuple[int, int]:
+    """Resolve the SPEC's warmup ratio for the locked API, which accepts warmup_steps only."""
+    if max_steps > 0:
+        optimizer_steps = max_steps
+    else:
+        micro_batches = math.ceil(dataset_size / per_device_batch_size)
+        optimizer_steps = math.ceil(micro_batches / gradient_accumulation_steps) * num_train_epochs
+    return optimizer_steps, math.ceil(optimizer_steps * warmup_ratio)
+
+
 def audit_tokenized_example(example: dict[str, list[int]], tokenizer: Any) -> dict[str, int]:
     """Fail on the silent completion-only masking bugs called out by the SPEC."""
     input_ids = example["input_ids"]
@@ -97,7 +114,7 @@ def _model_and_tokenizer(config: dict[str, Any]):
         revision=model_cfg["revision"],
         trust_remote_code=model_cfg["trust_remote_code"],
         quantization_config=bnb_config,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map={"": 0},
     )
     if not getattr(model, "is_loaded_in_4bit", False):
@@ -151,7 +168,7 @@ def _reload_adapter(config: dict[str, Any], adapter_dir: Path, is_trainable: boo
             bnb_4bit_use_double_quant=quant_cfg["bnb_4bit_use_double_quant"],
             bnb_4bit_compute_dtype=torch.bfloat16,
         ),
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map={"": 0},
     )
     return PeftModel.from_pretrained(base, adapter_dir, is_trainable=is_trainable)
@@ -240,6 +257,15 @@ def run(config_path: Path, mode: str) -> dict[str, Any]:
     if mode == "smoke":
         train_dataset = train_dataset.select(range(config["smoke"]["samples"]))
     training_cfg = config["training"]
+    configured_max_steps = config["smoke"]["max_steps"] if mode == "smoke" else -1
+    planned_optimizer_steps, warmup_steps = resolve_training_steps(
+        dataset_size=len(train_dataset),
+        per_device_batch_size=training_cfg["per_device_train_batch_size"],
+        gradient_accumulation_steps=training_cfg["gradient_accumulation_steps"],
+        num_train_epochs=training_cfg["num_train_epochs"],
+        max_steps=configured_max_steps,
+        warmup_ratio=training_cfg["warmup_ratio"],
+    )
     args = SFTConfig(
         output_dir=str(output_dir / "checkpoints"),
         max_length=training_cfg["max_length"],
@@ -249,8 +275,8 @@ def run(config_path: Path, mode: str) -> dict[str, Any]:
         gradient_accumulation_steps=training_cfg["gradient_accumulation_steps"],
         learning_rate=training_cfg["learning_rate"],
         num_train_epochs=training_cfg["num_train_epochs"],
-        max_steps=config["smoke"]["max_steps"] if mode == "smoke" else -1,
-        warmup_ratio=training_cfg["warmup_ratio"],
+        max_steps=configured_max_steps,
+        warmup_steps=warmup_steps,
         lr_scheduler_type=training_cfg["lr_scheduler_type"],
         weight_decay=training_cfg["weight_decay"],
         bf16=training_cfg["bf16"],
@@ -282,6 +308,9 @@ def run(config_path: Path, mode: str) -> dict[str, Any]:
         "base_revision": config["model"]["revision"],
         "updated_lora_parameter_count": updated_count,
         "peak_cuda_memory_bytes": torch.cuda.max_memory_allocated(0),
+        "planned_optimizer_steps": planned_optimizer_steps,
+        "requested_warmup_ratio": training_cfg["warmup_ratio"],
+        "resolved_warmup_steps": warmup_steps,
         "label_audit": label_audit,
     }
     _write_json(output_dir / "train_metrics.json", metrics)
@@ -320,4 +349,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from medreason.train_sft import audit_tokenized_example, build_sft_record
+from medreason.train_sft import audit_tokenized_example, build_sft_record, resolve_training_steps
 
 
 class FakeTokenizer:
@@ -49,6 +49,11 @@ def test_build_sft_record_uses_prompt_completion_contract() -> None:
     record = build_sft_record(sample, "<eos>")
     assert record["prompt"].endswith("<answer>X</answer>")
     assert record["completion"] == "\n\nReason\n\n<answer>B</answer><eos>"
+
+
+def test_warmup_ratio_is_resolved_for_locked_sft_api() -> None:
+    assert resolve_training_steps(32, 1, 16, 1, 5, 0.03) == (5, 1)
+    assert resolve_training_steps(12000, 1, 16, 1, -1, 0.03) == (750, 23)
 
 
 def test_label_audit_accepts_prompt_mask_and_trainable_answer_eos() -> None:
