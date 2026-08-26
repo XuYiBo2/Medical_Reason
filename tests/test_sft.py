@@ -5,7 +5,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from medreason.train_sft import audit_tokenized_example, build_sft_record, resolve_training_steps
+from medreason.evaluate_sft import select_generation_candidate
+from medreason.train_sft import (
+    audit_tokenized_example,
+    build_sft_record,
+    completion_was_truncated,
+    resolve_training_steps,
+)
 
 
 class FakeTokenizer:
@@ -37,6 +43,7 @@ def test_sft_config_matches_spec() -> None:
     assert config["smoke"]["samples"] == 32
     assert config["smoke"]["max_steps"] == 5
     assert config["evaluation"]["format_rate_gate"] == 0.95
+    assert config["evaluation"]["repetition_penalty_diagnostic"] == [1.0, 1.05, 1.1]
 
 
 def test_build_sft_record_uses_prompt_completion_contract() -> None:
@@ -54,6 +61,22 @@ def test_build_sft_record_uses_prompt_completion_contract() -> None:
 def test_warmup_ratio_is_resolved_for_locked_sft_api() -> None:
     assert resolve_training_steps(32, 1, 16, 1, 5, 0.03) == (5, 1)
     assert resolve_training_steps(12000, 1, 16, 1, -1, 0.03) == (750, 23)
+
+
+def test_truncation_requires_cap_length_without_eos() -> None:
+    assert not completion_was_truncated([1, 2, 0], max_new_tokens=3, eos_token_id=0)
+    assert completion_was_truncated([1, 2, 3], max_new_tokens=3, eos_token_id=0)
+    assert not completion_was_truncated([1, 2], max_new_tokens=3, eos_token_id=0)
+
+
+def test_generation_candidate_selection_follows_predefined_order() -> None:
+    results = [
+        {"repetition_penalty": 1.0, "metrics": {"format_rate": 0.88}},
+        {"repetition_penalty": 1.05, "metrics": {"format_rate": 0.96}},
+        {"repetition_penalty": 1.1, "metrics": {"format_rate": 0.99}},
+    ]
+    assert select_generation_candidate(results, 0.95) == 1.05
+    assert select_generation_candidate(results[:1], 0.95) is None
 
 
 def test_label_audit_accepts_prompt_mask_and_trainable_answer_eos() -> None:

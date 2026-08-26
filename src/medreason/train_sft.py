@@ -72,6 +72,16 @@ def audit_tokenized_example(example: dict[str, list[int]], tokenizer: Any) -> di
     }
 
 
+def completion_was_truncated(completion_ids: Any, max_new_tokens: int, eos_token_id: int) -> bool:
+    """A cap-length completion is truncated only when it did not end with EOS."""
+    if len(completion_ids) < max_new_tokens:
+        return False
+    last_token_id = completion_ids[-1]
+    if hasattr(last_token_id, "item"):
+        last_token_id = last_token_id.item()
+    return int(last_token_id) != eos_token_id
+
+
 def _load_json_dataset(path: Path, tokenizer: Any):
     from datasets import load_dataset
 
@@ -174,10 +184,25 @@ def _reload_adapter(config: dict[str, Any], adapter_dir: Path, is_trainable: boo
     return PeftModel.from_pretrained(base, adapter_dir, is_trainable=is_trainable)
 
 
-def evaluate_dev(model: Any, tokenizer: Any, samples: list[dict[str, Any]], config: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+def evaluate_dev(
+    model: Any,
+    tokenizer: Any,
+    samples: list[dict[str, Any]],
+    config: dict[str, Any],
+    output_dir: Path,
+    generation_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     import torch
 
-    generation_cfg = config["evaluation"]
+    generation_cfg = {
+        "max_new_tokens": config["evaluation"]["max_new_tokens"],
+        "do_sample": config["evaluation"]["do_sample"],
+        "num_beams": config["evaluation"]["num_beams"],
+        "repetition_penalty": config["evaluation"]["repetition_penalty"],
+    }
+    if generation_overrides:
+        generation_cfg.update(generation_overrides)
+    output_dir.mkdir(parents=True, exist_ok=True)
     predictions_path = output_dir / "dev_predictions.jsonl"
     successes = []
     formats = []
@@ -196,6 +221,7 @@ def evaluate_dev(model: Any, tokenizer: Any, samples: list[dict[str, Any]], conf
                     do_sample=generation_cfg["do_sample"],
                     num_beams=generation_cfg["num_beams"],
                     max_new_tokens=generation_cfg["max_new_tokens"],
+                    repetition_penalty=generation_cfg["repetition_penalty"],
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
                 )
@@ -205,7 +231,9 @@ def evaluate_dev(model: Any, tokenizer: Any, samples: list[dict[str, Any]], conf
             parsed = parse_final_answer(completion, allowed)
             success = task_success(completion, sample["answer"], allowed)
             diagnostics = reasoning_diagnostics(completion, tokenizer)
-            truncated = len(completion_ids) == generation_cfg["max_new_tokens"]
+            truncated = completion_was_truncated(
+                completion_ids, generation_cfg["max_new_tokens"], tokenizer.eos_token_id
+            )
             formats.append(int(parsed is not None))
             successes.append(success)
             lengths.append(len(completion_ids))
@@ -231,6 +259,7 @@ def evaluate_dev(model: Any, tokenizer: Any, samples: list[dict[str, Any]], conf
         "completion_tokens_mean": statistics.fmean(lengths),
         "completion_tokens_median": statistics.median(lengths),
         "truncation_rate": statistics.fmean(truncations),
+        "generation_config": generation_cfg,
     }
     _write_json(output_dir / "dev_metrics.json", metrics)
     return metrics
