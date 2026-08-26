@@ -1,0 +1,17 @@
+protocol_path: outputs/protocol/frozen_protocol.yaml
+medqa_train_path: data/processed/medqa_train.jsonl
+output_dir: outputs/difficulty
+
+scan:
+  initial_samples: 1000
+  expand_step: 500
+  seed: 42
+
+probe:
+  target: 256
+  per_stratum_target: 128
+  seed: 42
+
+pools:
+  minimum_size: 256
+  seed: 42

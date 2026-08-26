@@ -51,7 +51,7 @@ def infer_event_schedule(event_steps: list[int], planned_optimizer_steps: int) -
     return {"optimizer_steps_per_generation_event": cadence, "planned_generation_events": events}
 
 
-def _load_model_and_tokenizer(config: dict[str, Any]):
+def _load_model_and_tokenizer(config: dict[str, Any], is_trainable: bool = True):
     import torch
     from peft import PeftModel, prepare_model_for_kbit_training
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -80,12 +80,14 @@ def _load_model_and_tokenizer(config: dict[str, Any]):
     )
     base.config.use_cache = False
     base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=True)
-    model = PeftModel.from_pretrained(base, adapter_dir, is_trainable=True)
+    model = PeftModel.from_pretrained(base, adapter_dir, is_trainable=is_trainable)
     if set(model.peft_config) != {"default"}:
         raise RuntimeError(f"expected exactly the existing SFT adapter, found {list(model.peft_config)}")
     trainable = [name for name, parameter in model.named_parameters() if parameter.requires_grad]
-    if not trainable or any("lora_" not in name for name in trainable):
+    if is_trainable and (not trainable or any("lora_" not in name for name in trainable)):
         raise RuntimeError("the existing SFT LoRA must be the only trainable parameter set")
+    if not is_trainable and trainable:
+        raise RuntimeError("evaluation-only adapter unexpectedly has trainable parameters")
     return model, tokenizer
 
 
