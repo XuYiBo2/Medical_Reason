@@ -139,15 +139,23 @@ def _read_existing_scan(path: Path, expected_ids: list[str]) -> list[dict[str, A
     return rows
 
 
-def _scan_one(model: Any, tokenizer: Any, sample: dict[str, Any], protocol: dict[str, Any], scan_index: int, seed: int):
+def _scan_batch(
+    model: Any,
+    tokenizer: Any,
+    samples: list[dict[str, Any]],
+    protocol: dict[str, Any],
+    start_index: int,
+    seed: int,
+) -> list[dict[str, Any]]:
     import torch
 
     generation = protocol["generation"]
-    prompt = render_prompt(sample)
     context_limit = int(getattr(model.config, "max_position_embeddings"))
-    validate_generation_context(sample, tokenizer, generation["max_completion_length"], context_limit)
-    inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to("cuda")
-    torch.manual_seed(seed + scan_index)
+    for sample in samples:
+        validate_generation_context(sample, tokenizer, generation["max_completion_length"], context_limit)
+    prompts = [render_prompt(sample) for sample in samples]
+    inputs = tokenizer(prompts, return_tensors="pt", padding=True, add_special_tokens=False).to("cuda")
+    torch.manual_seed(seed + start_index)
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
@@ -162,35 +170,42 @@ def _scan_one(model: Any, tokenizer: Any, sample: dict[str, Any], protocol: dict
         )
     completion_ids = output_ids[:, inputs["input_ids"].shape[1] :]
     completions = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
-    allowed = set(sample["options"])
-    rewards = [task_success(text, sample["answer"], allowed) for text in completions]
-    formats = [int(parse_final_answer(text, allowed) is not None) for text in completions]
-    lengths: list[int] = []
-    truncations: list[int] = []
-    for ids in completion_ids:
-        # Generated tensors are rectangular; remove right padding but retain a terminating EOS.
-        eos_positions = (ids == tokenizer.eos_token_id).nonzero(as_tuple=True)[0]
-        length = int(eos_positions[0].item()) + 1 if len(eos_positions) else len(ids)
-        effective_ids = ids[:length]
-        lengths.append(length)
-        truncations.append(int(completion_was_truncated(
-            effective_ids, generation["max_completion_length"], tokenizer.eos_token_id
-        )))
-    correct_count = sum(rewards)
-    pass_rate = correct_count / generation["num_generations"]
-    return {
-        "sample_id": sample["id"],
-        "scan_index": scan_index,
-        "num_rollouts": generation["num_generations"],
-        "correct_count": correct_count,
-        "pass_rate": pass_rate,
-        "reward_std_population": statistics.pstdev(rewards),
-        "is_informative": 0.0 < pass_rate < 1.0,
-        "format_rate": sum(formats) / len(formats),
-        "truncation_rate": sum(truncations) / len(truncations),
-        "mean_completion_tokens": statistics.fmean(lengths),
-        "completion_tokens": sum(lengths),
-    }
+    group_size = generation["num_generations"]
+    rows = []
+    for offset, sample in enumerate(samples):
+        first = offset * group_size
+        group_ids = completion_ids[first : first + group_size]
+        group_text = completions[first : first + group_size]
+        allowed = set(sample["options"])
+        rewards = [task_success(text, sample["answer"], allowed) for text in group_text]
+        formats = [int(parse_final_answer(text, allowed) is not None) for text in group_text]
+        lengths: list[int] = []
+        truncations: list[int] = []
+        for ids in group_ids:
+            # Generated tensors are rectangular; remove right padding but retain a terminating EOS.
+            eos_positions = (ids == tokenizer.eos_token_id).nonzero(as_tuple=True)[0]
+            length = int(eos_positions[0].item()) + 1 if len(eos_positions) else len(ids)
+            effective_ids = ids[:length]
+            lengths.append(length)
+            truncations.append(int(completion_was_truncated(
+                effective_ids, generation["max_completion_length"], tokenizer.eos_token_id
+            )))
+        correct_count = sum(rewards)
+        pass_rate = correct_count / group_size
+        rows.append({
+            "sample_id": sample["id"],
+            "scan_index": start_index + offset,
+            "num_rollouts": group_size,
+            "correct_count": correct_count,
+            "pass_rate": pass_rate,
+            "reward_std_population": statistics.pstdev(rewards),
+            "is_informative": 0.0 < pass_rate < 1.0,
+            "format_rate": sum(formats) / len(formats),
+            "truncation_rate": sum(truncations) / len(truncations),
+            "mean_completion_tokens": statistics.fmean(lengths),
+            "completion_tokens": sum(lengths),
+        })
+    return rows
 
 
 def run(config_path: Path) -> dict[str, Any]:
@@ -227,13 +242,17 @@ def run(config_path: Path) -> dict[str, Any]:
     scan_state = {
         "frozen_protocol_identity": protocol_identity(protocol),
         "scan_seed": config["scan"]["seed"],
+        "prompt_batch_size": config["scan"]["prompt_batch_size"],
         "medqa_train_size": len(samples),
     }
     if scan_path.exists() and not state_path.exists():
         raise RuntimeError("existing scan.jsonl has no protocol-bound scan_state.json")
     if state_path.exists():
         existing_state = json.loads(state_path.read_text(encoding="utf-8"))
-        if existing_state != scan_state:
+        legacy_state = {key: value for key, value in scan_state.items() if key != "prompt_batch_size"}
+        if existing_state == legacy_state:
+            _write_json(state_path, scan_state)
+        elif existing_state != scan_state:
             raise RuntimeError("existing Formal Scan belongs to a different frozen protocol or universe")
     else:
         _write_json(state_path, scan_state)
@@ -261,13 +280,16 @@ def run(config_path: Path) -> dict[str, Any]:
             print(f"Formal Scan tranche: {len(scan_rows)} -> {next_target}", flush=True)
             while len(scan_rows) < next_target:
                 scan_index = len(scan_rows)
-                row = _scan_one(
-                    model, tokenizer, ordered_samples[scan_index], protocol, scan_index, config["scan"]["seed"]
+                batch_end = min(next_target, scan_index + config["scan"]["prompt_batch_size"])
+                new_rows = _scan_batch(
+                    model, tokenizer, ordered_samples[scan_index:batch_end], protocol,
+                    scan_index, config["scan"]["seed"],
                 )
-                scan_rows.append(row)
-                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+                scan_rows.extend(new_rows)
+                for row in new_rows:
+                    handle.write(json.dumps(row, ensure_ascii=False) + "\n")
                 handle.flush()
-                if len(scan_rows) % 10 == 0:
+                if len(scan_rows) % 40 == 0 or len(scan_rows) == next_target:
                     informative_so_far = sum(item["is_informative"] for item in scan_rows)
                     print(
                         f"Formal Scan progress: {len(scan_rows)}/{len(ordered_samples)}; "

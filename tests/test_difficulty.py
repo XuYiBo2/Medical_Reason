@@ -36,7 +36,7 @@ def frozen_protocol() -> dict:
 
 def test_difficulty_config_matches_spec() -> None:
     config = yaml.safe_load(Path("configs/difficulty.yaml").read_text(encoding="utf-8"))
-    assert config["scan"] == {"initial_samples": 1000, "expand_step": 500, "seed": 42}
+    assert config["scan"] == {"initial_samples": 1000, "expand_step": 500, "prompt_batch_size": 8, "seed": 42}
     assert config["probe"] == {"target": 256, "per_stratum_target": 128, "seed": 42}
     assert required_pool_size(frozen_protocol(), config["pools"]["minimum_size"]) == 256
     assert scan_gate_counts(256, 128) == {"informative_required": 384, "noninformative_required": 128}

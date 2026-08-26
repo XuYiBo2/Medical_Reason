@@ -78,9 +78,11 @@ def _load_model_and_tokenizer(config: dict[str, Any], is_trainable: bool = True)
             bnb_4bit_compute_dtype=torch.bfloat16,
         ), dtype=torch.bfloat16, device_map={"": 0},
     )
-    base.config.use_cache = False
-    base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=True)
+    base.config.use_cache = not is_trainable
+    if is_trainable:
+        base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=True)
     model = PeftModel.from_pretrained(base, adapter_dir, is_trainable=is_trainable)
+    model.config.use_cache = not is_trainable
     if set(model.peft_config) != {"default"}:
         raise RuntimeError(f"expected exactly the existing SFT adapter, found {list(model.peft_config)}")
     trainable = [name for name, parameter in model.named_parameters() if parameter.requires_grad]
