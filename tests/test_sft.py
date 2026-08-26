@@ -43,6 +43,7 @@ def test_sft_config_matches_spec() -> None:
     assert config["smoke"]["samples"] == 32
     assert config["smoke"]["max_steps"] == 5
     assert config["evaluation"]["format_rate_gate"] == 0.95
+    assert config["evaluation"]["repetition_penalty"] == 1.05
     assert config["evaluation"]["repetition_penalty_diagnostic"] == [1.0, 1.05, 1.1]
 
 

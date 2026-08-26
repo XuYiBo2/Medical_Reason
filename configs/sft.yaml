@@ -55,7 +55,7 @@ evaluation:
   max_new_tokens: 256
   do_sample: false
   num_beams: 1
-  repetition_penalty: 1.0
+  repetition_penalty: 1.05
   format_rate_gate: 0.95
   repetition_penalty_diagnostic:
     - 1.0

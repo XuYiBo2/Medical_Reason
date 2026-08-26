@@ -1,0 +1,55 @@
+model:
+  name_or_path: Qwen/Qwen3-8B-Base
+  revision: 49e3418fbbbca6ecbdf9608b4d22e5a407081db4
+  trust_remote_code: false
+
+quantization:
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: bfloat16
+
+data:
+  train_path: data/processed/medqa_train.jsonl
+
+initialization:
+  sft_adapter_dir: outputs/sft/adapter
+
+training:
+  learning_rate: 1.0e-6
+  optimizer: adamw_torch
+  lr_scheduler_type: linear
+  max_steps: 300
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4
+  steps_per_generation: 4
+  num_generations: 4
+  num_iterations: 2
+  max_completion_length: 256
+  temperature: 0.8
+  top_p: 0.95
+  repetition_penalty: 1.0
+  loss_type: dapo
+  epsilon: 0.20
+  epsilon_high: 0.28
+  beta: 0.0
+  scale_rewards: group
+  mask_truncated_completions: true
+  use_vllm: false
+  bf16: true
+  gradient_checkpointing: true
+  max_grad_norm: 1.0
+  save_strategy: steps
+  save_steps: 100
+  save_total_limit: 3
+  seed: 42
+
+smoke:
+  samples: 32
+  max_steps: 5
+  output_dir: outputs/smoke
+
+protocol:
+  output_path: outputs/protocol/frozen_protocol.yaml
+  checkpoint_selection: select checkpoints on SFT dev only; never use final evaluation sets
+  deterministic_evaluation_repetition_penalty: 1.05
