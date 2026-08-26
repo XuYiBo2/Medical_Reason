@@ -1,0 +1,16 @@
+protocol_path: outputs/protocol/frozen_protocol.yaml
+difficulty_summary_path: outputs/difficulty/summary.json
+probe_ids_path: outputs/difficulty/probe_ids.json
+
+branches:
+  random:
+    pool_path: outputs/difficulty/random_pool.jsonl
+    output_dir: outputs/random_grpo
+  difficulty:
+    pool_path: outputs/difficulty/informative_pool.jsonl
+    output_dir: outputs/difficulty_grpo
+
+failure_monitor:
+  consecutive_logging_steps: 10
+  minimum_format_rate: 0.90
+  maximum_truncation_rate: 0.25
