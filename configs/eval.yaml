@@ -1,0 +1,30 @@
+protocol_path: outputs/protocol/frozen_protocol.yaml
+scan_path: outputs/difficulty/scan.jsonl
+probe_ids_path: outputs/difficulty/probe_ids.json
+medqa_train_path: data/processed/medqa_train.jsonl
+difficulty_summary_path: outputs/difficulty/summary.json
+random_train_metrics_path: outputs/random_grpo/train_metrics.json
+difficulty_train_metrics_path: outputs/difficulty_grpo/train_metrics.json
+
+sft_adapter_path: outputs/sft/adapter
+random_checkpoint_root: outputs/random_grpo/checkpoints
+difficulty_checkpoint_root: outputs/difficulty_grpo/checkpoints
+checkpoint_steps: [100, 200, 300]
+
+datasets:
+  medqa_dev: data/processed/medqa_dev.jsonl
+  medqa_test: data/processed/medqa_test.jsonl
+  medmcqa_eval: data/processed/medmcqa_eval.jsonl
+  mmlu_pro_health: data/processed/mmlu_pro_health_test.jsonl
+
+execution:
+  prompt_batch_size: 8
+  persistence_seed: 42
+
+bootstrap:
+  resamples: 5000
+  confidence_level: 0.95
+  seed: 42
+
+output_dir: outputs/eval
+persistence_output_dir: outputs/persistence
